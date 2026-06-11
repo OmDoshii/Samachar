@@ -1,0 +1,21 @@
+{
+  "name": "Samachar — News Dashboard",
+  "short_name": "Samachar",
+  "description": "Free, ad-free Indian news for UPSC and current affairs. Aggregates The Hindu and Indian Express.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAFAF8",
+  "theme_color": "#B85C00",
+  "orientation": "portrait-primary",
+  "lang": "en-IN",
+  "categories": ["news"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
