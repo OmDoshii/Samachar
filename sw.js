@@ -19,6 +19,11 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
+  // Skip external requests entirely — let the browser handle fonts/CDN normally.
+  // The CSP (connect-src 'self') blocks the SW from fetching cross-origin URLs,
+  // so we must not intercept them.
+  if (url.origin !== self.location.origin) return;
+
   // News API: network first so data is always fresh; fall back to cache when offline
   if (url.pathname === '/api/news') {
     e.respondWith(
