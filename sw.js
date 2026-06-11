@@ -2,7 +2,14 @@ const CACHE = 'samachar-v1';
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(['/', '/index.html']))
+    caches.open(CACHE).then(c => c.addAll([
+      '/',
+      '/index.html',
+      '/manifest.json',
+      '/icon.svg',
+      '/icons/icon-192.png',
+      '/icons/icon-512.png',
+    ]))
   );
   self.skipWaiting();
 });
