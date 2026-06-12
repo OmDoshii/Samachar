@@ -1,10 +1,16 @@
 const https = require('https');
 const http  = require('http');
 
-const RSS_FEEDS = [
-  { key: 'hindu', label: 'The Hindu',      badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/news/feeder/default.rss' },
-  { key: 'ie',    label: 'Indian Express', badgeClass: 'badge-ie',    url: 'https://indianexpress.com/feed/' },
-];
+const RSS_FEEDS = {
+  en: [
+    { key: 'hindu',    label: 'The Hindu',      badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/news/feeder/default.rss' },
+    { key: 'ie',       label: 'Indian Express', badgeClass: 'badge-ie',    url: 'https://indianexpress.com/feed/' },
+  ],
+  hi: [
+    { key: 'hindu-hi',   label: 'द हिंदू',     badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/hindi/feeder/default.rss' },
+    { key: 'amarujala',  label: 'अमर उजाला',   badgeClass: 'badge-au',    url: 'https://www.amarujala.com/rss/breaking-news.xml' },
+  ],
+};
 
 // Per-IP rate limiting (in-memory; resets on cold start — enough to block scripted abuse)
 const rateMap = new Map();
@@ -143,12 +149,15 @@ module.exports = async (req, res) => {
     return res.status(429).json({ error: 'Too many requests' });
   }
 
+  const lang = req.query?.lang === 'hi' ? 'hi' : 'en';
+  const feeds = RSS_FEEDS[lang];
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=60');
 
   const allItems = [];
-  for (const feed of RSS_FEEDS) {
+  for (const feed of feeds) {
     try {
       const xml = await fetchUrl(feed.url);
       allItems.push(...parseRSS(xml, feed));

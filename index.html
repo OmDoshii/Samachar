@@ -21,6 +21,7 @@
     --unread-bg: #F0F7F1; --unread-border: #A8D5B0; --unread-hover: #81C784;
     --hindu-bg: #FFF3E0; --hindu-text: #BF360C;
     --ie-bg: #E3F2FD; --ie-text: #0D47A1;
+    --au-bg: #E8F5E9; --au-text: #2E7D32;
     --new-bg: #E8F5E9; --new-text: #2E7D32; --new-dot: #43A047;
     --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
   }
@@ -37,6 +38,10 @@
   .refresh-btn { display: flex; align-items: center; gap: 5px; font-size: 12px; font-family: inherit; font-weight: 500; color: var(--text-secondary); background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 12px; cursor: pointer; transition: all .15s; }
   .refresh-btn:hover { background: var(--bg); border-color: var(--border-hover); }
   .refresh-btn.spinning svg { animation: spin .8s linear infinite; }
+  .lang-toggle { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; }
+  .lang-btn { font-size: 11px; font-family: inherit; font-weight: 500; padding: 4px 10px; background: none; border: none; color: var(--text-secondary); cursor: pointer; transition: all .15s; white-space: nowrap; }
+  .lang-btn.active { background: var(--accent); color: #fff; }
+  .lang-btn:hover:not(.active) { background: var(--border); }
   .filter-row { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: .7rem; }
   .pill { font-size: 12px; font-family: inherit; font-weight: 500; padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); cursor: pointer; transition: all .15s; }
   .pill:hover { border-color: var(--accent); color: var(--accent); }
@@ -60,6 +65,7 @@
   .badge { font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 4px; }
   .badge-hindu { background: var(--hindu-bg); color: var(--hindu-text); }
   .badge-ie { background: var(--ie-bg); color: var(--ie-text); }
+  .badge-au { background: var(--au-bg); color: var(--au-text); }
   .badge-cat { background: #F3F3F0; color: var(--text-secondary); }
   .new-badge { display: flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 600; background: var(--new-bg); color: var(--new-text); padding: 2px 7px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
   .new-dot { width: 5px; height: 5px; background: var(--new-dot); border-radius: 50%; animation: pulse 1.5s ease-in-out infinite; }
@@ -123,6 +129,12 @@
   .swipe-hint { text-align: center; font-size: 10px; color: var(--text-muted); margin-top: .8rem; letter-spacing: .3px; }
   .stack-counter { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 10px; }
 
+  /* ── End-of-feed card ───────────────────────────────────────────────── */
+  .scard-done { justify-content: center; align-items: center; text-align: center; padding: 2.5rem 1.5rem; min-height: 300px; gap: .75rem; }
+  .done-icon { font-size: 32px; margin-bottom: .25rem; }
+  .done-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 700; color: var(--text-primary); }
+  .done-sub { font-size: 12.5px; color: var(--text-muted); line-height: 1.7; }
+
   /* ── Footer ──────────────────────────────────────────────────────────── */
   .footer { border-top: 1px solid var(--border); background: var(--surface); padding: 1.25rem 1.5rem; margin-top: 2rem; }
   .footer-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -140,6 +152,7 @@
     <div class="header-right">
       <span class="auto-pill">⟳ auto 15 min</span>
       <span class="last-updated" id="lastUpdated"></span>
+      <div class="lang-toggle" id="langToggle"></div>
       <button class="refresh-btn" id="refreshBtn" onclick="loadAll()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         Refresh
@@ -160,7 +173,7 @@
 
 <footer class="footer">
   <div class="footer-inner">
-    <div class="footer-sources">
+    <div class="footer-sources" id="footerSources">
       News sourced from <a href="https://www.thehindu.com" target="_blank" rel="noopener">The Hindu</a>
       &amp; <a href="https://indianexpress.com" target="_blank" rel="noopener">Indian Express</a>
     </div>
@@ -169,7 +182,7 @@
 </footer>
 
 <script>
-const CATEGORIES = ['All','History','Geography','Polity','Economy','Environment','Science','Current Affairs','Finance'];
+const CATEGORIES = ['All','History','Geography','Polity','Economy','Environment','Science','Finance','Sports','Entertainment','Current Affairs'];
 const PER_PAGE = 8;
 const RECENT_HOURS = 6;
 const SERVER = '';
@@ -180,6 +193,7 @@ let activeFilter = 'All';
 let currentPage = 1;
 let stackIdx = 0;
 let stackHistory = [];
+let currentLang = (() => { const l = localStorage.getItem('samachar_lang'); return l === 'hi' ? 'hi' : 'en'; })();
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function saveRead() { localStorage.setItem('samachar_read', JSON.stringify([...readSet])); }
@@ -208,7 +222,35 @@ function guessCategory(title, desc) {
   if (/environment|forest|wildlife|pollution|climate change|carbon|emission|biodiversity|species|wetland|tiger|national park|solar|renewable/.test(t)) return 'Environment';
   if (/science|technology|space|isro|nasa|research|discovery|innovation|artificial intelligence|satellite|nuclear|vaccine|disease|genome|quantum/.test(t)) return 'Science';
   if (/stock|sensex|nifty|sebi|insurance|mutual fund|npa|interest rate|gst|income tax|direct tax|bond|ipo/.test(t)) return 'Finance';
+  if (/cricket|ipl|\bbcci\b|\bt20\b|test match|\bodi\b|\bicc\b|world cup|virat kohli|rohit sharma|ms dhoni|jasprit bumrah|shubman gill|\btennis\b|wimbledon|us open|french open|australian open|djokovic|carlos alcaraz|\bbadminton\b|pv sindhu|saina nehwal|kidambi srikanth|\bfifa\b|\bisl\b|premier league|bundesliga|champions league|la liga|hockey india|\bfih\b|pro kabaddi|\bkabaddi\b|\bolympics\b|\bparalympics\b|asian games|commonwealth games|gold medal|silver medal|bronze medal|neeraj chopra|mary kom|bajrang punia|chess olympiad|chess championship|boxing championship|boxing title|wrestling championship|athletics championship|\bgolf\b/.test(t)) return 'Sports';
+  if (/bollywood|box.?office|national film award|filmfare|\biifa\b|\boscars?\b|\bbafta\b|golden globe|\bott\b|\bnetflix\b|amazon prime video|disney\+|hotstar|zee5|sony liv|\bbigg boss\b|reality show|web series|music album|\bgrammy\b|film director|movie release|film release|television serial|entertainment industry|celebrity|blockbuster|streaming platform|trailer launch|award ceremony/.test(t)) return 'Entertainment';
   return 'Current Affairs';
+}
+
+// ── Language ──────────────────────────────────────────────────────────────
+function setLang(lang) {
+  if (lang === currentLang) return;
+  currentLang = lang;
+  localStorage.setItem('samachar_lang', lang);
+  activeFilter = 'All';
+  currentPage = 1; stackIdx = 0; stackHistory = [];
+  renderLangToggle();
+  renderFilters();
+  updateFooter();
+  loadAll();
+}
+function renderLangToggle() {
+  document.getElementById('langToggle').innerHTML =
+    `<button class="lang-btn${currentLang === 'en' ? ' active' : ''}" onclick="setLang('en')">EN</button>` +
+    `<button class="lang-btn${currentLang === 'hi' ? ' active' : ''}" onclick="setLang('hi')">हिं</button>`;
+}
+function updateFooter() {
+  const el = document.getElementById('footerSources');
+  if (currentLang === 'hi') {
+    el.innerHTML = 'समाचार स्रोत: <a href="https://www.thehindu.com/hindi/" target="_blank" rel="noopener">द हिंदू</a> &amp; <a href="https://www.amarujala.com" target="_blank" rel="noopener">अमर उजाला</a>';
+  } else {
+    el.innerHTML = 'News sourced from <a href="https://www.thehindu.com" target="_blank" rel="noopener">The Hindu</a> &amp; <a href="https://indianexpress.com" target="_blank" rel="noopener">Indian Express</a>';
+  }
 }
 
 // ── Load ──────────────────────────────────────────────────────────────────
@@ -217,13 +259,13 @@ async function loadAll() {
   btn.classList.add('spinning'); btn.disabled = true;
   showLoading();
   try {
-    const res = await fetch(SERVER + '/api/news');
+    const res = await fetch(SERVER + '/api/news?lang=' + currentLang);
     if (!res.ok) throw new Error('Server returned ' + res.status);
     const data = await res.json();
     const seen = new Set();
     allArticles = (data.items || [])
       .filter(a => { if (seen.has(a.id)) return false; seen.add(a.id); return true; })
-      .map(a => ({ ...a, category: guessCategory(a.title, a.description) }));
+      .map(a => ({ ...a, category: currentLang === 'hi' ? '' : guessCategory(a.title, a.description) }));
     document.getElementById('lastUpdated').textContent =
       'Updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     currentPage = 1; stackIdx = 0; stackHistory = [];
@@ -238,7 +280,8 @@ async function loadAll() {
 function getFiltered() { return activeFilter === 'All' ? allArticles : allArticles.filter(a => a.category === activeFilter); }
 function setFilter(cat) { activeFilter = cat; currentPage = 1; stackIdx = 0; stackHistory = []; renderFilters(); renderCards(); }
 function renderFilters() {
-  document.getElementById('filterRow').innerHTML = CATEGORIES.map(c =>
+  const cats = currentLang === 'hi' ? ['All'] : CATEGORIES;
+  document.getElementById('filterRow').innerHTML = cats.map(c =>
     `<button class="pill${c === activeFilter ? ' active' : ''}" onclick="setFilter('${c}')">${c}</button>`
   ).join('');
 }
@@ -261,7 +304,9 @@ function renderCards() {
   const filtered = getFiltered(), total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   if (currentPage > totalPages) currentPage = totalPages;
-  document.getElementById('sectionLabel').textContent = activeFilter === 'All' ? 'All categories' : activeFilter;
+  document.getElementById('sectionLabel').textContent = activeFilter === 'All'
+    ? (currentLang === 'hi' ? 'सभी समाचार' : 'All categories')
+    : activeFilter;
   updateUnreadPill();
   const content = document.getElementById('content');
   if (!total) {
@@ -271,12 +316,13 @@ function renderCards() {
   const pageItems = filtered.slice((currentPage - 1) * PER_PAGE, currentPage * PER_PAGE);
   const cards = pageItems.map((a, i) => {
     const unread = !readSet.has(a.id), recent = isRecent(a.pubDate), showNew = unread && recent;
+    const showCat = currentLang === 'en' && a.category;
     return `<article class="card${unread && recent ? ' unread' : ''}" data-id="${ea(a.id)}"
       style="animation-delay:${i * .04}s" onclick="handleClick('${ej(a.id)}','${ej(a.link)}')">
       <div class="card-top">
         <div class="badges">
           <span class="badge ${eh(a.badgeClass)}">${eh(a.sourceLabel)}</span>
-          <span class="badge badge-cat">${a.category}</span>
+          ${showCat ? `<span class="badge badge-cat">${a.category}</span>` : ''}
         </div>
         ${showNew ? '<span class="new-badge"><span class="new-dot"></span>NEW</span>' : ''}
       </div>
@@ -323,12 +369,13 @@ function handleClick(id, link) { markRead(id); if (/^https?:\/\//i.test(link)) w
 
 // ── State screens ─────────────────────────────────────────────────────────
 function showLoading() {
+  const sources = currentLang === 'hi' ? 'द हिंदू and अमर उजाला' : 'The Hindu and Indian Express';
   const ms = document.getElementById('mobileStack');
   if (ms) ms.innerHTML = '';
   document.getElementById('content').innerHTML = `<div class="state-wrap">
     <div class="spinner"></div>
     <div class="state-title">Fetching latest news…</div>
-    <div class="state-sub">Pulling from The Hindu and Indian Express</div>
+    <div class="state-sub">Pulling from ${sources}</div>
   </div>`;
 }
 function showError(msg) {
@@ -342,11 +389,12 @@ function showError(msg) {
 // ── Mobile card stack ────────────────────────────────────────────────────
 function cardHTML(a) {
   const unread = !readSet.has(a.id), recent = isRecent(a.pubDate), showNew = unread && recent;
+  const showCat = currentLang === 'en' && a.category;
   return `
     <div class="card-top">
       <div class="badges">
         <span class="badge ${a.badgeClass}">${a.sourceLabel}</span>
-        <span class="badge badge-cat">${a.category}</span>
+        ${showCat ? `<span class="badge badge-cat">${a.category}</span>` : ''}
       </div>
       ${showNew ? '<span class="new-badge"><span class="new-dot"></span>NEW</span>' : ''}
     </div>
@@ -375,7 +423,29 @@ function renderMobileStack() {
   const filtered = getFiltered();
   if (!filtered.length) { el.innerHTML = ''; return; }
 
-  if (stackIdx >= filtered.length) stackIdx = filtered.length - 1;
+  if (stackIdx >= filtered.length) {
+    el.innerHTML = `
+      <div class="scard-behind scard-b2"></div>
+      <div class="scard-behind scard-b1"></div>
+      <div class="scard scard-done" id="topScard">
+        <div class="done-icon">✓</div>
+        <div class="done-title">All caught up!</div>
+        <div class="done-sub">You've read all ${filtered.length} articles.<br>Swipe ↓ to go back or refresh for latest.</div>
+        <button class="refresh-btn" style="margin:.75rem auto 0;" onclick="loadAll()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh for latest
+        </button>
+      </div>
+      <div class="stack-counter">${filtered.length} / ${filtered.length}</div>`;
+    const endCard = document.getElementById('topScard');
+    endCard.addEventListener('touchstart', e => { _ty0 = e.touches[0].clientY; }, { passive: true });
+    endCard.addEventListener('touchend', e => {
+      const dy = e.changedTouches[0].clientY - _ty0;
+      if (dy > 70 && stackHistory.length > 0) { stackIdx = stackHistory.pop(); renderMobileStack(); }
+    });
+    return;
+  }
+
   const a = filtered[stackIdx];
   const unread = !readSet.has(a.id), recent = isRecent(a.pubDate);
 
@@ -417,7 +487,7 @@ function attachSwipe(card, filtered, a) {
     const dy = e.changedTouches[0].clientY - _ty0;
     const THRESHOLD = 70;
 
-    if (dy < -THRESHOLD && stackIdx < filtered.length - 1) {
+    if (dy < -THRESHOLD && stackIdx < filtered.length) {
       markRead(a.id);
       card.style.transition = 'transform .3s ease, opacity .3s ease';
       card.style.transform = 'translateY(-110vh) rotate(-8deg)';
@@ -445,9 +515,11 @@ function ej(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").repl
 function safeUrl(s) { const u = String(s).trim(); return /^https?:\/\//i.test(u) ? ea(u) : '#'; }
 
 // ── Init ──────────────────────────────────────────────────────────────────
+renderLangToggle();
 renderFilters();
+updateFooter();
 loadAll();
-setInterval(loadAll, 15 * 60 * 1000);
+setInterval(() => { if (document.visibilityState === 'visible') loadAll(); }, 15 * 60 * 1000);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

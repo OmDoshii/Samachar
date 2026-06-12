@@ -1,10 +1,16 @@
 // Cloudflare Pages Function — serves /api/news
 // Identical logic to api/news.js (Vercel); adapted for the Workers runtime.
 
-const RSS_FEEDS = [
-  { key: 'hindu', label: 'The Hindu',      badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/news/feeder/default.rss' },
-  { key: 'ie',    label: 'Indian Express', badgeClass: 'badge-ie',    url: 'https://indianexpress.com/feed/' },
-];
+const RSS_FEEDS = {
+  en: [
+    { key: 'hindu',    label: 'The Hindu',      badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/news/feeder/default.rss' },
+    { key: 'ie',       label: 'Indian Express', badgeClass: 'badge-ie',    url: 'https://indianexpress.com/feed/' },
+  ],
+  hi: [
+    { key: 'hindu-hi',   label: 'द हिंदू',     badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/hindi/feeder/default.rss' },
+    { key: 'amarujala',  label: 'अमर उजाला',   badgeClass: 'badge-au',    url: 'https://www.amarujala.com/rss/breaking-news.xml' },
+  ],
+};
 
 // Per-isolate rate limiting — resets on cold start, good enough to block scripted abuse
 const rateMap = new Map();
@@ -133,8 +139,11 @@ export async function onRequestGet(context) {
     });
   }
 
+  const lang = new URL(context.request.url).searchParams.get('lang') === 'hi' ? 'hi' : 'en';
+  const feeds = RSS_FEEDS[lang];
+
   const allItems = [];
-  for (const feed of RSS_FEEDS) {
+  for (const feed of feeds) {
     try {
       const xml = await fetchFeed(feed.url);
       allItems.push(...parseRSS(xml, feed));
