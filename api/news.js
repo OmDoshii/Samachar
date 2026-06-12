@@ -7,8 +7,11 @@ const RSS_FEEDS = {
     { key: 'ie',       label: 'Indian Express', badgeClass: 'badge-ie',    url: 'https://indianexpress.com/feed/' },
   ],
   hi: [
-    { key: 'hindu-hi',   label: 'द हिंदू',     badgeClass: 'badge-hindu', url: 'https://www.thehindu.com/hindi/feeder/default.rss' },
-    { key: 'amarujala',  label: 'अमर उजाला',   badgeClass: 'badge-au',    url: 'https://www.amarujala.com/rss/breaking-news.xml' },
+    { key: 'bbc-hi',   label: 'BBC हिंदी',      badgeClass: 'badge-bbc',     url: 'https://feeds.bbci.co.uk/hindi/rss.xml' },
+    { key: 'bhaskar',  label: 'दैनिक भास्कर',   badgeClass: 'badge-bhaskar', url: 'https://www.bhaskar.com/rss-v1--category-1061.xml' },
+    { key: 'bhaskar',  label: 'दैनिक भास्कर',   badgeClass: 'badge-bhaskar', url: 'https://www.bhaskar.com/rss-v1--category-1125.xml' },
+    { key: 'bhaskar',  label: 'दैनिक भास्कर',   badgeClass: 'badge-bhaskar', url: 'https://www.bhaskar.com/rss-v1--category-1051.xml' },
+    { key: 'bhaskar',  label: 'दैनिक भास्कर',   badgeClass: 'badge-bhaskar', url: 'https://www.bhaskar.com/rss-v1--category-5707.xml' },
   ],
 };
 
@@ -26,6 +29,29 @@ function checkRate(ip) {
 }
 
 const MAX_BODY = 5 * 1024 * 1024; // 5 MB per feed response
+
+function fetchOgDescription(url) {
+  return new Promise((resolve) => {
+    if (!url.startsWith('https://')) return resolve('');
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Samachar-RSS-Reader/1.0)', 'Accept': 'text/html' }
+    }, (res) => {
+      if (res.statusCode >= 300) { res.destroy(); return resolve(''); }
+      let buf = '';
+      res.on('data', chunk => {
+        buf += chunk;
+        const m = buf.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']{15,}?)["']/i)
+               || buf.match(/<meta[^>]+content=["']([^"']{15,}?)["'][^>]+property=["']og:description["']/i);
+        if (m) { req.destroy(); return resolve(cleanText(m[1])); }
+        if (buf.length > 8192) { req.destroy(); return resolve(''); }
+      });
+      res.on('end', () => resolve(''));
+      res.on('error', () => resolve(''));
+    });
+    req.on('error', () => resolve(''));
+    req.setTimeout(5000, () => { req.destroy(); resolve(''); });
+  });
+}
 
 function fetchUrl(url, redirects = 0) {
   return new Promise((resolve, reject) => {
@@ -59,6 +85,7 @@ function fetchUrl(url, redirects = 0) {
 function cleanText(raw) {
   if (!raw) return '';
   return raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
@@ -114,7 +141,7 @@ function smartExcerpt(description, title = '', maxWords = 65) {
 }
 
 function getTag(xml, tagName) {
-  const re = new RegExp(`<${tagName}[^>]*>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([\\s\\S]*?))<\\/${tagName}>`, 'i');
+  const re = new RegExp(`<${tagName}[^>]*>\\s*(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([\\s\\S]*?))<\\/${tagName}>`, 'i');
   const m = xml.match(re);
   return m ? (m[1] !== undefined ? m[1] : (m[2] || '')) : '';
 }
@@ -171,5 +198,18 @@ module.exports = async (req, res) => {
     return td(b.pubDate) - td(a.pubDate);
   });
 
-  res.status(200).json({ status: 'ok', items: allItems });
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const items = allItems
+    .filter(a => { try { return !a.pubDate || new Date(a.pubDate).getTime() >= cutoff; } catch { return true; } })
+    .slice(0, 60);
+
+  const noDesc = items.filter(a => !a.description);
+  if (noDesc.length) {
+    await Promise.all(noDesc.map(async a => {
+      const d = await fetchOgDescription(a.link);
+      if (d) a.description = d;
+    }));
+  }
+
+  res.status(200).json({ status: 'ok', items });
 };
