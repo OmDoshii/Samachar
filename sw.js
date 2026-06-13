@@ -1,10 +1,12 @@
-const CACHE = 'samachar-v1';
+const CACHE = 'samachar-v2';
 
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll([
       '/',
       '/index.html',
+      '/style.css',
+      '/app.js',
       '/manifest.json',
       '/icon.svg',
       '/icons/icon-192.png',
@@ -26,12 +28,11 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // Skip external requests entirely — let the browser handle fonts/CDN normally.
-  // The CSP (connect-src 'self') blocks the SW from fetching cross-origin URLs,
-  // so we must not intercept them.
+  // Skip external requests — let browser handle fonts/CDN normally.
+  // CSP (connect-src 'self') blocks SW from fetching cross-origin URLs.
   if (url.origin !== self.location.origin) return;
 
-  // News API: network first so data is always fresh; fall back to cache when offline
+  // News API: network-first so data is always fresh; fall back to cache when offline
   if (url.pathname === '/api/news') {
     e.respondWith(
       fetch(e.request)
@@ -47,7 +48,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Everything else: cache first (app shell, fonts)
+  // Everything else: cache-first (app shell, icons)
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );

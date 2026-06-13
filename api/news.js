@@ -15,10 +15,13 @@ const RSS_FEEDS = {
   ],
 };
 
+// Allowlist of valid badge class values — prevents CSS class injection
+const VALID_BADGE_CLASSES = new Set(['badge-hindu', 'badge-ie', 'badge-au', 'badge-bbc', 'badge-bhaskar']);
+
 // Per-IP rate limiting (in-memory; resets on cold start — enough to block scripted abuse)
 const rateMap = new Map();
-const RATE_LIMIT   = 60;        // requests per window
-const RATE_WINDOW  = 60 * 1000; // 1 minute
+const RATE_LIMIT   = 60;
+const RATE_WINDOW  = 60 * 1000;
 function checkRate(ip) {
   const now = Date.now();
   const entry = rateMap.get(ip);
@@ -28,11 +31,29 @@ function checkRate(ip) {
   return true;
 }
 
-const MAX_BODY = 5 * 1024 * 1024; // 5 MB per feed response
+const MAX_BODY = 5 * 1024 * 1024;
+
+// SSRF protection — block requests to private/loopback/link-local networks
+function isSafeHttpsUrl(rawUrl) {
+  if (typeof rawUrl !== 'string') return false;
+  let u;
+  try { u = new URL(rawUrl); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const h = u.hostname.toLowerCase();
+  if (h === 'localhost' || h === '0.0.0.0') return false;
+  if (/^127\./.test(h)) return false;           // loopback
+  if (/^10\./.test(h)) return false;            // RFC1918
+  if (/^192\.168\./.test(h)) return false;      // RFC1918
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false; // RFC1918
+  if (/^169\.254\./.test(h)) return false;      // link-local / AWS metadata
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return false; // CGNAT RFC6598
+  if (/^::1$|^::ffff:/i.test(h)) return false;  // IPv6 loopback/mapped
+  return true;
+}
 
 function fetchOgDescription(url) {
   return new Promise((resolve) => {
-    if (!url.startsWith('https://')) return resolve('');
+    if (!isSafeHttpsUrl(url)) return resolve('');
     const req = https.get(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Samachar-RSS-Reader/1.0)', 'Accept': 'text/html' }
     }, (res) => {
@@ -56,7 +77,6 @@ function fetchOgDescription(url) {
 function fetchUrl(url, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error('Too many redirects'));
-    // Block HTTPS → HTTP downgrades
     if (redirects > 0 && !url.startsWith('https://')) return reject(new Error('Redirect to non-HTTPS blocked'));
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, {
@@ -95,6 +115,11 @@ function cleanText(raw) {
     .replace(/&rdquo;/g, '”').replace(/&ldquo;/g, '“').replace(/&mdash;/g, '—')
     .replace(/&ndash;/g, '–')
     .replace(/\s+/g, ' ').trim();
+}
+
+// Strip any residual HTML tags from a string field
+function stripHtml(s) {
+  return typeof s === 'string' ? s.replace(/<[^>]+>/g, '').trim() : '';
 }
 
 function scoreSentence(s) {
@@ -154,23 +179,36 @@ function parseRSS(xmlText, feedMeta) {
     const link  = getTag(block, 'link') || getTag(block, 'guid');
     const rawDesc = getTag(block, 'content:encoded') || getTag(block, 'description');
     const pub   = getTag(block, 'pubDate');
+
     if (!title || !link) continue;
+
+    // Only accept https article links — rejects javascript: and other schemes
+    const trimmedLink = link.trim();
+    if (!trimmedLink.startsWith('https://')) continue;
+
     let summary = smartExcerpt(rawDesc, title);
     if (summary.trim().toLowerCase() === title.trim().toLowerCase()) summary = '';
-    items.push({ id: link, title, link, description: summary, pubDate: pub,
-      source: feedMeta.key, sourceLabel: feedMeta.label, badgeClass: feedMeta.badgeClass });
+
+    items.push({
+      id:          trimmedLink.slice(0, 2048),
+      title:       title.slice(0, 500),
+      link:        trimmedLink.slice(0, 2048),
+      description: summary.slice(0, 2000),
+      pubDate:     pub,
+      source:      feedMeta.key,
+      sourceLabel: feedMeta.label,
+      badgeClass:  feedMeta.badgeClass,
+    });
   }
   return items;
 }
 
 module.exports = async (req, res) => {
-  // Only allow GET
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Rate limiting
   const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
   if (!checkRate(ip)) {
     return res.status(429).json({ error: 'Too many requests' });
@@ -206,10 +244,23 @@ module.exports = async (req, res) => {
   const noDesc = items.filter(a => !a.description);
   if (noDesc.length) {
     await Promise.all(noDesc.map(async a => {
+      // isSafeHttpsUrl checked inside fetchOgDescription
       const d = await fetchOgDescription(a.link);
-      if (d) a.description = d;
+      if (d) a.description = d.slice(0, 2000);
     }));
   }
 
-  res.status(200).json({ status: 'ok', items });
+  // Final sanitization pass before sending to client
+  const safeItems = items.map(a => ({
+    id:          stripHtml(a.id).slice(0, 2048),
+    title:       stripHtml(a.title).slice(0, 500),
+    link:        /^https:\/\//.test(stripHtml(a.link)) ? stripHtml(a.link).slice(0, 2048) : '',
+    description: stripHtml(a.description).slice(0, 2000),
+    pubDate:     a.pubDate,
+    source:      stripHtml(a.source).slice(0, 50),
+    sourceLabel: stripHtml(a.sourceLabel).slice(0, 100),
+    badgeClass:  VALID_BADGE_CLASSES.has(a.badgeClass) ? a.badgeClass : '',
+  }));
+
+  res.status(200).json({ status: 'ok', items: safeItems });
 };
